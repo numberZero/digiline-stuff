@@ -1,5 +1,5 @@
--- Created by jogag
--- Rewritten by numberZero
+-- Written by numberZero
+-- Based on the original code by jogag
 -- Part of the Digiline Stuff pack
 -- Mod: digiline memory chip
 -- A memory chip you can use to store several strings
@@ -10,10 +10,12 @@
 
 digiline_memory = {}
 
--- list with the various chip sizes
--- (put two equal chips in crafting grid to upgrade)
-local MEMORY_CHIPS = { 16, 32, 64, 128, 256, 512, 1024 }
-local EMPTY_MEMORY = "return {}"
+local CHIP_DESCRIPTION = "Digiline %d-bit Memory Chip (%d rows)"
+local CHIP_INFOTEXT = "Memory Chip (%d-bit)"
+local CHIP_FORMSPEC = "field[channel;Channel;${channel}]"
+local ROW_SIZE_LIMIT = 4 * 1024
+local MSG_INVALID_ADDRESS = "Invalid address"
+local MSG_DATA_TOO_LONG = "Data too long"
 
 -- all taken from digiline RTC mod
 local chip_nodebox =
@@ -31,7 +33,7 @@ local chip_selbox =
 	fixed = {{ -8/16, -8/16, -8/16, 8/16, -3/16, 8/16 }}
 }
 
-local validate_addr = function(addr, desc)
+local get_meta_field_name = function(addr, desc)
 	if type(addr) ~= "number" then
 		return false
 	end
@@ -39,7 +41,7 @@ local validate_addr = function(addr, desc)
 	if frac ~= 0 or int < 0 or int >= desc.size then
 		return false
 	end
-	return true, int
+	return true, "data_"..int
 end
 
 digiline_memory.on_digiline_receive = function(pos, node, channel, msg)
@@ -50,31 +52,53 @@ digiline_memory.on_digiline_receive = function(pos, node, channel, msg)
 	if channel ~= meta:get_string("channel") then
 		return
 	end
-	local data = minetest.deserialize(meta:get_string("data"))
 	local ok = false
-	local addr, value
+	local addr
+	local value
 	local desc = minetest.registered_nodes[minetest.get_node(pos).name].digiline_memory
 	if msg.cmd == "get" then
-		ok, addr = validate_addr(msg.addr, desc)
+		ok, addr = get_meta_field_name(msg.addr, desc)
 		if ok then
-			value = data[addr]
+			value = minetest.deserialize(meta:get_string(addr))
+		else
+			value = MSG_INVALID_ADDRESS
 		end
 	elseif msg.cmd == "set" then
-		ok, addr = validate_addr(msg.addr, desc)
+		ok, addr = get_meta_field_name(msg.addr, desc)
 		if ok then
-			data[addr] = msg.value
-			meta:set_string("data", minetest.serialize(data))
+			if msg.value == nil then
+				value = ""
+			else
+				value = minetest.serialize(msg.value)
+			end
+			if #value > ROW_SIZE_LIMIT then
+				ok = false
+				value = MSG_DATA_TOO_LONG
+			else
+				meta:set_string(addr, value)
+				value = nil -- don't send it back
+			end
+		else
+			value = MSG_INVALID_ADDRESS
 		end
 	elseif msg.cmd == "clear" then
 		ok = true
-		meta:set_string("data", EMPTY_MEMORY)
+		meta:from_table({
+			inventory = {},
+			fields = {
+				formspec = CHIP_FORMSPEC,
+				infotext = desc.label,
+				channel = channel,
+			}})
 	end
 	digiline:receptor_send(pos, digiline.rules.default, channel, {ok=ok, value=value})
 end
 
-for i, s in ipairs(MEMORY_CHIPS) do
-	minetest.register_node("digiline_memory:memory_"..s, {
-		description = "Digiline Memory Chip ("..s.." addresses)",
+for bus_width = 4,10 do
+	local row_count = 2^bus_width
+	local label = string.format(CHIP_INFOTEXT, bus_width)
+	minetest.register_node("digiline_memory:memory_"..row_count, {
+		description = string.format(CHIP_DESCRIPTION, bus_width, row_count),
 		drawtype = "nodebox",
 		tiles = {"digiline_memory.png"},
 
@@ -88,28 +112,34 @@ for i, s in ipairs(MEMORY_CHIPS) do
 			effector = { action = digiline_memory.on_digiline_receive },
 		},
 		digiline_memory = {
-			size = s,
+			label = label,
+			size = row_count,
 		},
 		on_construct = function(pos)
 			local meta = minetest.get_meta(pos)
-			meta:set_string("formspec", "field[channel;Channel;${channel}]")
-			meta:set_string("infotext", "Memory Chip ("..s.." addresses)")
-			meta:set_string("channel", "")
-			meta:set_string("data", EMPTY_MEMORY)
+			meta:from_table({
+				inventory = {},
+				fields = {
+					formspec = CHIP_FORMSPEC,
+					infotext = label,
+					channel = "",
+				}})
 		end,
 		on_receive_fields = function(pos, formname, fields, sender)
 			if fields.channel then minetest.get_meta(pos):set_string("channel", fields.channel) end
 		end,
 	})
+end
 
-	if i ~= 1 then
-		minetest.register_craft({
-			type = "shapeless",
-			output = "digiline_memory:memory_"..s,
-			recipe = {
-				"digiline_memory:memory_"..(s / 2),
-				"digiline_memory:memory_"..(s / 2),
-			},
-		})
-	end
+for base_bus_width = 4,9 do
+	local base_size = 2^base_bus_width
+	local next_size = 2 * base_size
+	minetest.register_craft({
+		type = "shapeless",
+		output = "digiline_memory:memory_"..next_size,
+		recipe = {
+			"digiline_memory:memory_"..base_size,
+			"digiline_memory:memory_"..base_size,
+		},
+	})
 end
