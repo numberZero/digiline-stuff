@@ -1,12 +1,14 @@
-
-
 -- Original Digiboard mod by bas080
 -- Cracked by jogag
--- Added features: settable channel, no more minetest.env, settable field caption (via digiline)
+-- Added features: settable channel, no more minetest.env,
+--                 settable field caption (via digiline)
 
 minetest.register_node("digiboard:keyboard", {
 	description = "Digiboard",
-	tiles = {"keyboard_top.png", "keyboard_bottom.png", "keyboard_side.png", "keyboard_side.png", "keyboard_side.png", "keyboard_side.png"},
+	tiles = {
+		"keyboard_top.png", "keyboard_bottom.png", "keyboard_side.png",
+		"keyboard_side.png", "keyboard_side.png", "keyboard_side.png"
+	},
 	walkable = true,
 	paramtype = "light",
 	paramtype2 = "facedir",
